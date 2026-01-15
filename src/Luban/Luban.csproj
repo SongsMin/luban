@@ -70,6 +70,7 @@
       <ProjectReference Include="..\Luban.Rust\Luban.Rust.csproj" />
       <ProjectReference Include="..\Luban.Schema.Builtin\Luban.Schema.Builtin.csproj" />
       <ProjectReference Include="..\Luban.Typescript\Luban.Typescript.csproj" />
+        <ProjectReference Include="..\Luban.TableSignature\Luban.TableSignature.csproj" />
     </ItemGroup>
 
     <ItemGroup>

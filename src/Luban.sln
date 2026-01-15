@@ -49,6 +49,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Luban.Dart", "Luban.Dart\Lu
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Luban.Javascript", "Luban.Javascript\Luban.Javascript.csproj", "{583680B1-998E-CFD5-62EB-FE3D65A4D162}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Luban.TableSignature", "Luban.TableSignature\Luban.TableSignature.csproj", "{C16CD2F1-B435-4AA6-9A28-E680858BCE49}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -147,6 +149,10 @@ Global
 		{583680B1-998E-CFD5-62EB-FE3D65A4D162}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{583680B1-998E-CFD5-62EB-FE3D65A4D162}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{583680B1-998E-CFD5-62EB-FE3D65A4D162}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C16CD2F1-B435-4AA6-9A28-E680858BCE49}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C16CD2F1-B435-4AA6-9A28-E680858BCE49}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C16CD2F1-B435-4AA6-9A28-E680858BCE49}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C16CD2F1-B435-4AA6-9A28-E680858BCE49}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
