@@ -12,7 +12,32 @@ internal static class SignatureCalculatorHelper
 {
     private static readonly Logger s_logger = LogManager.GetCurrentClassLogger();
     
-    public static SignatureCalculationResult CalculateUnifiedSignatures()
+    /// <summary>
+    /// 创建签名表定义（不依赖数据加载）
+    /// </summary>
+    public static SignatureDefinitions CreateSignatureDefinitions()
+    {
+        var ctx = GenerationContext.Current;
+        if (ctx == null)
+        {
+            throw new Exception("GenerationContext.Current is null");
+        }
+        
+        // 创建签名表定义（添加到原始DefAssembly）
+        var (enumDef, beanDef, tableDef) = CreateSignatureDefinitions(ctx.Assembly, ctx);
+        
+        return new SignatureDefinitions
+        {
+            EnumDef = enumDef,
+            BeanDef = beanDef,
+            TableDef = tableDef
+        };
+    }
+    
+    /// <summary>
+    /// 计算统一签名（依赖数据加载，只在数据后处理中调用）
+    /// </summary>
+    public static Dictionary<string, string> CalculateUnifiedSignatures()
     {
         var ctx = GenerationContext.Current;
         if (ctx == null)
@@ -45,9 +70,6 @@ internal static class SignatureCalculatorHelper
         var wrappedAssembly = CreateWrappedDefAssembly(ctx.Assembly, signatureTarget, signatureGroups);
         
         Dictionary<string, string> signatures;
-        DefEnum enumDef;
-        DefBean beanDef;
-        DefTable tableDef;
         
         try
         {
@@ -74,16 +96,7 @@ internal static class SignatureCalculatorHelper
             wrappedAssembly.Restore();
         }
         
-        // 创建签名表定义（添加到原始DefAssembly）
-        (enumDef, beanDef, tableDef) = CreateSignatureDefinitions(ctx.Assembly, ctx);
-        
-        return new SignatureCalculationResult
-        {
-            Signatures = signatures,
-            EnumDef = enumDef,
-            BeanDef = beanDef,
-            TableDef = tableDef
-        };
+        return signatures;
     }
     
     private static WrappedDefAssembly CreateWrappedDefAssembly(

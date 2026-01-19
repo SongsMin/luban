@@ -27,20 +27,27 @@ public class TableSignatureDataPostProcessor : PostProcessBase
 
         try
         {
-            // 获取签名计算结果（线程安全，使用Lazy<T>）
-            var result = SignatureContext.Result;
+            // 获取签名表定义和签名计算结果（线程安全，使用Lazy<T>）
+            var definitions = SignatureContext.Definitions;
+            var signatures = SignatureContext.Signatures;
             
-            if (result == null || result.Signatures == null || result.Signatures.Count == 0)
+            if (definitions == null || definitions.TableDef == null)
+            {
+                s_logger.Warn("Signature definitions not ready, skip generating signature table");
+                return;
+            }
+            
+            if (signatures == null || signatures.Count == 0)
             {
                 s_logger.Warn("No signatures calculated, skip generating signature table");
                 return;
             }
 
-            // 生成签名表数据文件
-            GenerateSignatureDataFile(result, newOutputFileManifest);
+            // 更新签名表的记录（替换代码后处理阶段添加的空记录）
+            UpdateSignatureTableRecords(definitions, signatures);
             
-            // 生成签名表代码文件（直接写入代码目录）
-            GenerateSignatureCodeFiles(result);
+            // 生成签名表数据文件
+            GenerateSignatureDataFile(definitions, signatures, newOutputFileManifest);
         }
         catch (Exception ex)
         {
@@ -51,26 +58,66 @@ public class TableSignatureDataPostProcessor : PostProcessBase
 
     public override void PostProcess(OutputFileManifest oldOutputFileManifest, OutputFileManifest newOutputFileManifest, OutputFile outputFile)
     {
-        // 保留所有原始数据文件
+        // 检查是否是签名表的输出文件，如果是则过滤掉（因为我们会重新生成它）
+        var definitions = SignatureContext.Definitions;
+        if (definitions != null && definitions.TableDef != null)
+        {
+            // 获取签名表的输出文件名（不含扩展名）
+            var signatureTableOutputFile = definitions.TableDef.OutputDataFile;
+            if (!string.IsNullOrEmpty(signatureTableOutputFile))
+            {
+                // 检查当前文件是否是签名表的输出文件
+                // outputFile.File 可能是完整路径或相对路径，格式通常是 {OutputDataFile}.{扩展名}
+                // 例如：tbtablesignature.bin 或 path/to/tbtablesignature.json
+                var outputFileNameWithoutExt = Path.GetFileNameWithoutExtension(outputFile.File);
+                var signatureFileNameWithoutExt = Path.GetFileNameWithoutExtension(signatureTableOutputFile);
+                
+                // 如果文件名（不含扩展名）匹配，则过滤掉（不添加到 newOutputFileManifest）
+                if (string.Equals(outputFileNameWithoutExt, signatureFileNameWithoutExt, StringComparison.OrdinalIgnoreCase))
+                {
+                    s_logger.Debug("Filtering out signature table output file: {} (will be regenerated with actual signature data)", outputFile.File);
+                    return;
+                }
+            }
+        }
+        
+        // 保留其他所有原始数据文件
         newOutputFileManifest.AddFile(outputFile);
         
         // 注意：签名计算在SignatureContext.Result中完成，这里不需要计算
         // 因为我们已经使用专用DefAssembly统一计算了所有表的签名
     }
 
+    private void UpdateSignatureTableRecords(SignatureDefinitions definitions, Dictionary<string, string> signatures)
+    {
+        var ctx = GenerationContext.Current;
+        if (ctx == null)
+        {
+            return;
+        }
+        
+        // 创建签名表记录
+        var records = CreateSignatureRecords(definitions, signatures);
+        
+        // 更新 GenerationContext 中的记录（替换代码后处理阶段添加的空记录）
+        ctx.AddDataTable(definitions.TableDef, records, null);
+        s_logger.Debug("Updated signature table records: {} (replaced empty records with actual signature data)", definitions.TableDef.FullName);
+    }
+    
     private void GenerateSignatureDataFile(
-        SignatureCalculationResult result, 
+        SignatureDefinitions definitions,
+        Dictionary<string, string> signatures,
         OutputFileManifest newOutputFileManifest)
     {
         var ctx = GenerationContext.Current;
         var dataTargetName = newOutputFileManifest.TargetName;
         var dataTarget = DataTargetManager.Ins.CreateDataTarget(dataTargetName);
         
-        // 创建签名表记录
-        var records = CreateSignatureRecords(result);
+        // 从 GenerationContext 获取签名表记录（已经更新为实际数据）
+        var records = ctx.GetTableExportDataList(definitions.TableDef);
         
         // 生成数据文件
-        var outputFile = dataTarget.ExportTable(result.TableDef, records);
+        var outputFile = dataTarget.ExportTable(definitions.TableDef, records);
         if (outputFile != null)
         {
             newOutputFileManifest.AddFile(outputFile);
@@ -78,13 +125,13 @@ public class TableSignatureDataPostProcessor : PostProcessBase
         }
     }
 
-    private List<Record> CreateSignatureRecords(SignatureCalculationResult result)
+    private List<Record> CreateSignatureRecords(SignatureDefinitions definitions, Dictionary<string, string> signatures)
     {
         var records = new List<Record>();
-        var tableDef = result.TableDef;
+        var tableDef = definitions.TableDef;
         var tBean = tableDef.ValueTType;
         var dBean = tBean.DefBean;
-        var enumDef = result.EnumDef;
+        var enumDef = definitions.EnumDef;
         var tEnum = TEnum.Create(false, enumDef, null);
         var stringType = TString.Create(false, null);
 
@@ -93,7 +140,7 @@ public class TableSignatureDataPostProcessor : PostProcessBase
             // 从签名结果中查找对应的签名
             // enumItem.Name 是表名（如 "TableName"），需要找到对应的FullName
             var tableFullName = FindTableFullNameByEnumItemName(enumItem.Name);
-            if (tableFullName != null && result.Signatures.TryGetValue(tableFullName, out var signature))
+            if (tableFullName != null && signatures.TryGetValue(tableFullName, out var signature))
             {
                 var fields = new List<DType>();
                 var enumData = new DEnum(tEnum, enumItem.Name);
@@ -141,95 +188,5 @@ public class TableSignatureDataPostProcessor : PostProcessBase
         }
         
         return null;
-    }
-
-    private void GenerateSignatureCodeFiles(SignatureCalculationResult result)
-    {
-        var ctx = GenerationContext.Current;
-        
-        // 获取所有代码target（需要从配置或全局状态获取）
-        var codeTargetNames = GetCodeTargetNames();
-        
-        foreach (string codeTargetName in codeTargetNames)
-        {
-            try
-            {
-                var codeTarget = CodeTargetManager.Ins.CreateCodeTarget(codeTargetName);
-                var codeOutputDir = EnvManager.Current.GetOption(
-                    codeTargetName, BuiltinOptionNames.OutputCodeDir, true);
-                
-                GenerationContext.CurrentCodeTarget = codeTarget;
-                
-                // 生成枚举代码
-                var enumWriter = new CodeWriter();
-                codeTarget.GenerateEnum(ctx, result.EnumDef, enumWriter);
-                var enumPath = Path.Combine(codeOutputDir, codeTarget.GetPathFromFullName(result.EnumDef.FullName));
-                Directory.CreateDirectory(Path.GetDirectoryName(enumPath));
-                File.WriteAllText(enumPath, enumWriter.ToResult(codeTarget.FileHeader), codeTarget.FileEncoding);
-                s_logger.Info("Generated enum code file: {}", enumPath);
-                
-                // 生成Bean代码
-                var beanWriter = new CodeWriter();
-                codeTarget.GenerateBean(ctx, result.BeanDef, beanWriter);
-                var beanPath = Path.Combine(codeOutputDir, codeTarget.GetPathFromFullName(result.BeanDef.FullName));
-                Directory.CreateDirectory(Path.GetDirectoryName(beanPath));
-                File.WriteAllText(beanPath, beanWriter.ToResult(codeTarget.FileHeader), codeTarget.FileEncoding);
-                s_logger.Info("Generated bean code file: {}", beanPath);
-                
-                // 生成Table代码
-                var tableWriter = new CodeWriter();
-                codeTarget.GenerateTable(ctx, result.TableDef, tableWriter);
-                var tablePath = Path.Combine(codeOutputDir, codeTarget.GetPathFromFullName(result.TableDef.FullName));
-                Directory.CreateDirectory(Path.GetDirectoryName(tablePath));
-                File.WriteAllText(tablePath, tableWriter.ToResult(codeTarget.FileHeader), codeTarget.FileEncoding);
-                s_logger.Info("Generated table code file: {}", tablePath);
-                
-                // 重新生成TableManager（包含签名表）
-                var managerWriter = new CodeWriter();
-                var allExportTables = new List<DefTable>(ctx.ExportTables);
-                codeTarget.GenerateTables(ctx, allExportTables, managerWriter);
-                var managerPath = Path.Combine(codeOutputDir, codeTarget.GetPathFromFullName(ctx.Target.Manager));
-                Directory.CreateDirectory(Path.GetDirectoryName(managerPath));
-                File.WriteAllText(managerPath, managerWriter.ToResult(codeTarget.FileHeader), codeTarget.FileEncoding);
-                s_logger.Info("Regenerated TableManager: {}", managerPath);
-            }
-            catch (Exception ex)
-            {
-                s_logger.Error(ex, "Error generating code files for code target: {}", codeTargetName);
-                // 继续处理其他code target
-            }
-        }
-    }
-
-    private List<string> GetCodeTargetNames()
-    {
-        var codeTargetNames = new List<string>();
-        
-        // 尝试从配置选项获取code targets列表
-        var codeTargetsStr = EnvManager.Current.GetOptionOrDefault(
-            "", "signatureCodeTargets", true, "");
-        
-        if (!string.IsNullOrEmpty(codeTargetsStr))
-        {
-            // 从配置中读取，逗号分隔
-            codeTargetNames.AddRange(codeTargetsStr.Split(',')
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrEmpty(s)));
-        }
-        
-        // 如果配置为空，尝试使用当前CodeTarget（如果有）
-        if (codeTargetNames.Count == 0 && GenerationContext.CurrentCodeTarget != null)
-        {
-            codeTargetNames.Add(GenerationContext.CurrentCodeTarget.Name);
-            s_logger.Info("Using current code target: {}", GenerationContext.CurrentCodeTarget.Name);
-        }
-        
-        if (codeTargetNames.Count == 0)
-        {
-            s_logger.Warn("No code target found, cannot generate signature code files. " +
-                "Please specify code targets via option 'signatureCodeTargets' (comma-separated)");
-        }
-        
-        return codeTargetNames;
     }
 }

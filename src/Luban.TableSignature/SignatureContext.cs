@@ -1,28 +1,35 @@
-﻿using System.Collections.Concurrent;
-using Luban.Defs;
-using Luban.RawDefs;
+﻿using Luban.Defs;
 
 namespace Luban.TableSignature;
 
-public class SignatureCalculationResult
+public class SignatureDefinitions
 {
-    public Dictionary<string, string> Signatures { get; set; }
-    public DefEnum EnumDef { get; set; }
-    public DefBean BeanDef { get; set; }
-    public DefTable TableDef { get; set; }
+    public DefEnum EnumDef { get; init; }
+    public DefBean BeanDef { get; init; }
+    public DefTable TableDef { get; init; }
 }
 
 public static class SignatureContext
 {
-    private static readonly Lazy<SignatureCalculationResult> _signatureResult = new(
-        () => CalculateSignatures(),
+    // 定义（不依赖数据加载，可以在代码后处理中使用）
+    private static readonly Lazy<SignatureDefinitions> LazyDefinitions = new(
+        SignatureCalculatorHelper.CreateSignatureDefinitions,
         LazyThreadSafetyMode.ExecutionAndPublication
     );
     
-    public static SignatureCalculationResult Result => _signatureResult.Value;
+    // 签名（依赖数据加载，只在数据后处理中计算）
+    private static readonly Lazy<Dictionary<string, string>> LazySignatures = new(
+        SignatureCalculatorHelper.CalculateUnifiedSignatures,
+        LazyThreadSafetyMode.ExecutionAndPublication
+    );
     
-    private static SignatureCalculationResult CalculateSignatures()
-    {
-        return SignatureCalculatorHelper.CalculateUnifiedSignatures();
-    }
+    /// <summary>
+    /// 获取签名表定义（不依赖数据加载）
+    /// </summary>
+    public static SignatureDefinitions Definitions => LazyDefinitions.Value;
+    
+    /// <summary>
+    /// 获取签名计算结果（依赖数据加载）
+    /// </summary>
+    public static Dictionary<string, string> Signatures => LazySignatures.Value;
 }
